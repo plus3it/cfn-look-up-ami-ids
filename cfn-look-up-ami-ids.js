@@ -10,13 +10,6 @@ var aws = require('aws-sdk');
 var https = require('https');
 var url = require('url');
 
-// Map instance architectures to an AMI name pattern
-var archToAMINamePattern = {
-    'PV64': 'amzn-ami-pv*.x86_64-ebs',
-    'HVM64': 'amzn-ami-hvm*.x86_64-gp2',
-    'HVMG2': 'amzn-ami-graphics-hvm-*x86_64-ebs*'
-};
-
 // Check if the image is a beta or RC image (the Lambda function won't return any of these images)
 var isBeta = function(imageName) {
     return imageName.toLowerCase().indexOf('beta') !== -1 || imageName.toLowerCase().indexOf('.rc') !== -1;
@@ -78,17 +71,19 @@ exports.handler = function(event, context) {
         Filters: [
             {
                 Name: 'name',
-                Values: [archToAMINamePattern[event.ResourceProperties.Architecture]]
+                Values: [event.ResourceProperties.AmiNameSearchString]
             }
-        ],
-        Owners: [event.ResourceProperties.Architecture === 'HVMG2' ? '679593333241' : 'amazon']
+        ]
     };
 
     // Get AMI IDs with the specified name pattern and owner
     ec2.describeImages(describeImagesParams, function(err, data) {
         if (err) {
             responseData = { Error: 'DescribeImages call failed' };
-            console.log(responseData.Error + ":\n", err);
+            console.log(responseData.Error + ":\n", JSON.stringify(err, null, 2));
+        } else if (data.Images.length === 0) {
+            responseData = { Error: 'Search did not return any images' };
+            console.log("ERROR: " + responseData.Error);
         } else {
             var images = data.Images;
             // Sort images by name in descending order -- the names contain the AMI version formatted as YYYY.MM.Ver.
@@ -99,6 +94,7 @@ exports.handler = function(event, context) {
                 }
                 responseStatus = 'SUCCESS';
                 responseData.Id = images[i].ImageId;
+                console.log("Found AMI ID: " + responseData.Id);
                 break;
             }
         }
